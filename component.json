@@ -1,0 +1,5 @@
+{
+  "name": "lib-doomWad",
+  "version": "0.1.0",
+  "main": "./dist/doomWad.min.js"
+}

@@ -20,9 +20,9 @@ function initDoomWadSideDefs(context) {
       var sideDef = {};
       sideDef['textureX']      = stream.read16ls();
       sideDef['textureY']      = stream.read16ls();
-      sideDef['textureUpper']  = textures.fromName(stream.readAscii(8), "patch");
-      sideDef['textureLower']  = textures.fromName(stream.readAscii(8), "patch");
-      sideDef['textureMiddle'] = textures.fromName(stream.readAscii(8), "patch");
+      sideDef['textureUpper']  = textures.fromName(stream.readAscii(8));
+      sideDef['textureLower']  = textures.fromName(stream.readAscii(8));
+      sideDef['textureMiddle'] = textures.fromName(stream.readAscii(8));
       sideDef['sector']        = sectors.fromId(stream.read16lu());
       self._sideDefs.push(new context.DoomWad.SideDef(info, sideDef));
     }

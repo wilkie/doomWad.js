@@ -1,5 +1,6 @@
-/*! lib-doomWad - v0.1.0 - 2015-10-18 - wilkie */
+/*! lib-doomWad - v0.1.0 - 2018-02-13 - wilkie */
 ;(function (global) {
+
 /*jslint browser: true*/
 /*global $*/
 
@@ -42,6 +43,8 @@ function initDoomWadCore (context) {
     // Read only (led by underscores)
     self._filename = filename;
 
+    self._levels = {};
+
     self._stream = new DoomWad.Stream(filename, function() {
       // Read header
       self._header    = new DoomWad.Header(self._stream);
@@ -58,10 +61,26 @@ function initDoomWadCore (context) {
       // Create a texture manager
       self._textures  = new DoomWad.Textures(self._stream, self._info, self._directory, self._palette);
 
-      // Retrieve level
-      if (self._directory.lumpExists("MAP26")) {
-        self._level = new DoomWad.Level(self._stream, self._info, self._directory, self._textures, "MAP26");
+      // Retrieve level list
+      var level_list = ["E1M1", "E1M2", "E1M3", "E1M4", "E1M5", "E1M6", "E1M7",
+                        "E1M8", "E1M9", "E2M1", "E2M2", "E2M3", "E2M4", "E2M5",
+                        "E2M6", "E2M7", "E2M8", "E2M9", "E3M1", "E3M2", "E3M3",
+                        "E3M4", "E3M5", "E3M6", "E3M7", "E3M8", "E3M9", "E4M1",
+                        "E4M2", "E4M3", "E4M4", "E4M5", "E4M6", "E4M7", "E4M8",
+                        "E4M9"];
+
+      if (self._info.engine() == "DOOM2") {
+        var level_list = ["MAP01", "MAP02", "MAP03", "MAP04", "MAP05", "MAP06",
+                          "MAP07", "MAP08", "MAP09", "MAP10", "MAP11", "MAP12",
+                          "MAP13", "MAP14", "MAP15", "MAP16", "MAP17", "MAP18",
+                          "MAP19", "MAP20", "MAP21", "MAP22", "MAP23", "MAP24",
+                          "MAP25", "MAP26", "MAP27", "MAP28", "MAP29", "MAP30",
+                          "MAP31", "MAP32"];
       }
+
+      self._levelNames = level_list.filter(function (name) {
+        return self._directory.lumpExists(name);
+      });
 
       ready();
     })
@@ -81,27 +100,40 @@ function initDoomWadCore (context) {
 
   DoomWad.prototype.header = function() {
     return this._header;
-  }
+  };
 
   DoomWad.prototype.flats = function() {
     return this._textures.forNamespace("flat");
-  }
+  };
 
   DoomWad.prototype.sectors = function() {
     return this._level.sectors();
-  }
+  };
 
   DoomWad.prototype.lineDefs = function() {
     return this._level.lineDefs();
-  }
+  };
 
   DoomWad.prototype.textureFromName = function(name, namespace) {
     return this._textures.fromName(name, namespace);
-  }
+  };
 
-  DoomWad.prototype.level = function() {
-    return this._level;
-  }
+  DoomWad.prototype.levelNames = function() {
+    return this._levelNames.slice();
+  };
+
+  DoomWad.prototype.level = function(name) {
+    if (!(name in this._levels)) {
+      if (this._directory.lumpExists(name)) {
+        this._levels[name] = new DoomWad.Level(this._stream,
+                                               this._info,
+                                               this._directory,
+                                               this._textures,
+                                               name);
+      }
+    }
+    return this._levels[name];
+  };
 
   // DEBUG CODE
   //
@@ -142,6 +174,7 @@ function initDoomWadDirectory(context) {
       var offset = stream.read32lu();
       var size   = stream.read32lu();
       var name   = stream.readAscii(8);
+      name = name.toUpperCase();
 
       // Check for namespace
       if (name === "F_START") {
@@ -170,6 +203,7 @@ function initDoomWadDirectory(context) {
 
       // Store lump header and link the last lumpHeader to this one.
       last["next"] = lumpHeader
+
       if (!(name in self._directory)) {
         self._directory[name] = [];
       }
@@ -185,6 +219,8 @@ function initDoomWadDirectory(context) {
   };
 
   Directory.prototype.lumpHeaderFor = function(name, namespace) {
+    name = name.toUpperCase();
+
     var list = this._directory[name];
 
     if (list === undefined) {
@@ -203,10 +239,14 @@ function initDoomWadDirectory(context) {
   };
 
   Directory.prototype.lumpExists = function(name) {
+    name = name.toUpperCase();
     return name in this._directory;
   };
 
   Directory.prototype.lumpHeaderAfter = function(afterLumpName, name) {
+    name = name.toUpperCase();
+    afterLumpName = afterLumpName.toUpperCase();
+
     var lumpStart = this.lumpHeaderFor(afterLumpName);
     var currentLump = lumpStart;
     var i = 0;
@@ -222,6 +262,7 @@ function initDoomWadDirectory(context) {
     return currentLump;
   };
 }
+
 /*globals initDoomWadCore*/
 /*globals initDoomWadStream*/
 /*globals initDoomWadHeader*/
@@ -260,6 +301,7 @@ var initDoomWad = function (context) {
   initDoomWadTextures(context);
   initDoomWadTexture(context);
   initDoomWadSectors(context);
+  initDoomWadPatch(context);
   initDoomWadSector(context);
   initDoomWadPlayPal(context);
 
@@ -383,6 +425,7 @@ function initDoomWadInfo(context) {
     return this._engine;
   };
 }
+
 function initDoomWadLevel(context) {
   /**
    * Constructor
@@ -442,6 +485,9 @@ function initDoomWadLevel(context) {
     var minX = this._vertexes.minX();
     var maxX = this._vertexes.maxX();
 
+    var minZ = this._sectors.minZ();
+    var maxZ = this._sectors.maxZ();
+
     var width = maxX - minX;
 
     var minY = this._vertexes.minY();
@@ -453,7 +499,9 @@ function initDoomWadLevel(context) {
            "x": minX,
            "y": minY,
        "width": width,
-      "height": height
+      "height": height,
+       "floor": minZ,
+     "ceiling": maxZ,
     };
   };
 
@@ -469,6 +517,7 @@ function initDoomWadLevel(context) {
     return this._sectors.sectors();
   };
 }
+
 function initDoomWadLineDef(context) {
   /**
    * Constructor
@@ -499,6 +548,21 @@ function initDoomWadLineDef(context) {
     }
     self._rightSideDef = lineDefInfo['rightSideDef'];
     self._leftSideDef  = lineDefInfo['leftSideDef'];
+  };
+
+  LineDef.prototype.magnitude = function() {
+    return Math.sqrt(
+      (this._start.x - this._end.x) * (this._start.x - this._end.x) +
+      (this._start.y - this._end.y) * (this._start.y - this._end.y)
+    );
+  };
+
+  LineDef.prototype.rightSideDef = function() {
+    return this._rightSideDef;
+  };
+
+  LineDef.prototype.leftSideDef = function() {
+    return this._leftSideDef;
   };
 
   LineDef.prototype.size = function() {
@@ -557,6 +621,7 @@ function initDoomWadLineDef(context) {
     return (this._flags & 0x200) > 0;
   };
 }
+
 function initDoomWadLineDefs(context) {
   /**
    * Constructor
@@ -636,6 +701,113 @@ function initDoomWadLineDefs(context) {
     return this._sectorReference[sectorIndex] || [];
   };
 }
+
+function initDoomWadPatch(context) {
+  /**
+   * Constructor
+   */
+
+  var Patch = context.DoomWad.Patch = function(stream, info, lumpHeader, palette) {
+    var self = this;
+
+    // Record the total size of all known textures in bytes
+    self._size = 0;
+
+    // Keep a reference to the lump
+    self._lumpHeader = lumpHeader;
+
+    // Keep a reference to the stream.
+    self._stream = stream;
+
+    // Keep a reference of the palette.
+    self._palette = palette;
+
+    // Keep a reference to the general info.
+    self._info = info;
+
+    self._stream.push();
+    self._stream.seek(self._lumpHeader.offset);
+
+    self._width  = self._stream.read16lu();
+    self._height = self._stream.read16lu();
+    self._x      = self._stream.read16ls();
+    self._y      = self._stream.read16ls();
+
+    self._columnOffsets = new Array(self._width);
+
+    for (var i = 0; i < self._width; i++) {
+      self._columnOffsets[i] = self._stream.read32lu();
+    }
+
+    self._stream.pop();
+
+    return self;
+  };
+
+  Patch.prototype.x = function() {
+    return this._x;
+  };
+
+  Patch.prototype.y = function() {
+    return this._y;
+  };
+
+  Patch.prototype.width = function() {
+    return this._width;
+  };
+
+  Patch.prototype.height = function() {
+    return this._height;
+  };
+
+  Patch.prototype.eachColumn = function(callback) {
+    var self = this;
+
+    if (!self._columns) {
+      self._columns = new Array(self._width);
+      self._columnOffsets.forEach(function(columnOffset, x) {
+        self._stream.push();
+        self._stream.seek(self._lumpHeader.offset + columnOffset);
+
+        var parsing = 0;
+        var spans = [];
+
+        while (parsing < 255) {
+          parsing ++;
+
+          const spanInfo = {
+            yOffset: self._stream.read8u(),
+            nPixels: self._stream.read8u(),
+            unused:  self._stream.read8u()
+          };
+
+          // This is the final span
+          if (spanInfo.yOffset >= 255) {
+            parsing = 255;
+            continue;
+          }
+
+          var pixels = new Array(spanInfo.nPixels);
+          for (var i = 0; i < pixels.length; i++) {
+            pixels[i] = self._palette.fromId(self._stream.read8u());
+          };
+
+          // There is a dummy byte apparently
+          self._stream.read8u()
+
+          spans.push([spanInfo, pixels]);
+        }
+
+        self._stream.pop();
+
+        self._columns[x] = spans;
+      });
+    }
+
+    return self._columns.forEach(callback);
+  }
+};
+
 function initDoomWadPlayPal(context) {
   'use strict';
 
@@ -704,6 +876,18 @@ function initDoomWadSector(context) {
     return self;
   };
 
+  Sector.prototype.floor = function() {
+    return this._floorHeight;
+  };
+
+  Sector.prototype.ceiling = function() {
+    return this._ceilingHeight;
+  };
+
+  Sector.prototype.lineDefs = function() {
+    return this._lineDefs;
+  };
+
   Sector.prototype.size = function() {
     return this._size;
   };
@@ -756,6 +940,27 @@ function initDoomWadSector(context) {
        "width": this._maxX - this._minX,
       "height": this._maxY - this._minY
     };
+  };
+
+  // Returns the LineDef for the given pair of coordinates.
+  Sector.prototype.lineDefAt = function(x1, y1, x2, y2) {
+    for (var i = 0; i < this._lineDefs.length; i++) {
+      var lineDef = this._lineDefs[i];
+
+      var cx1 = lineDef.start().x;
+      var cy1 = lineDef.start().y;
+      var cx2 = lineDef.end().x;
+      var cy2 = lineDef.end().y;
+
+      if (cx1 == x1 && cy1 == y1 && cx2 == x2 && cy2 == y2) {
+        return lineDef;
+      }
+      else if (cx1 == x2 && cy1 == y2 && cx2 == x1 && cy2 == y1) {
+        return lineDef;
+      }
+    }
+
+    return null;
   };
 
   // Helper method that takes a list of lineDefs and a coordinate (x,y)
@@ -966,13 +1171,16 @@ function initDoomWadSector(context) {
         var mainPolygon = masterPolygon(polygons);
         var subPolygons = polygonsWithin(polygons, mainPolygon);
 
-        self._polygons.push(ensurePolygonVertexOrder(mainPolygon, true));
+        mainPolygon = ensurePolygonVertexOrder(mainPolygon, true);
 
         subPolygons = subPolygons.map(function(polygon) {
           return ensurePolygonVertexOrder(polygon, false);
         });
 
-        self._polygons = self._polygons.concat(subPolygons);
+        self._polygons.push({
+          "shape": mainPolygon,
+          "holes": subPolygons
+        });
       }
     }
 
@@ -987,14 +1195,20 @@ function initDoomWadSector(context) {
       self._vertices = [];
 
       var polygons = self.polygons();
-      polygons.forEach(function(polygon) {
+      polygons.forEach(function(info) {
+        var polygon = info.mainPolygon;
         self._vertices = self._vertices.concat(polygon);
+
+        info.holes.forEach(function(vertices) {
+          self._vertices = self._vertices.concat(vertices);
+        });
       });
     }
 
     return this._vertices;
   };
 }
+
 function initDoomWadSectors(context) {
   /**
    * Constructor
@@ -1048,16 +1262,45 @@ function initDoomWadSectors(context) {
 
   Sectors.prototype.fromId = function(index) {
     return this._sectors[index];
-  }
+  };
 
   Sectors.prototype.forTag = function(tag) {
     return this._tags[tag].slice(0);
-  }
+  };
 
   Sectors.prototype.sectors = function() {
     return this._sectors.slice(0);
-  }
+  };
+
+  Sectors.prototype.minZ = function() {
+    var self = this;
+
+    if (!self._minZ) {
+      self._sectors.forEach(function(sector) {
+        if (self._minZ === undefined || sector.floor() < self._minZ) {
+          self._minZ = sector.floor();
+        }
+      });
+    }
+
+    return self._minZ;
+  };
+
+  Sectors.prototype.maxZ = function() {
+    var self = this;
+
+    if (!self._maxZ) {
+      self._sectors.forEach(function(sector) {
+        if (self._maxZ === undefined || sector.ceiling() > self._maxZ) {
+          self._maxZ = sector.ceiling();
+        }
+      });
+    }
+
+    return self._maxZ;
+  };
 }
+
 function initDoomWadSideDef(context) {
   /**
    * Constructor
@@ -1100,6 +1343,7 @@ function initDoomWadSideDef(context) {
     return this._data['textureY'];
   };
 }
+
 function initDoomWadSideDefs(context) {
   /**
    * Constructor
@@ -1122,9 +1366,9 @@ function initDoomWadSideDefs(context) {
       var sideDef = {};
       sideDef['textureX']      = stream.read16ls();
       sideDef['textureY']      = stream.read16ls();
-      sideDef['textureUpper']  = textures.fromName(stream.readAscii(8), "patch");
-      sideDef['textureLower']  = textures.fromName(stream.readAscii(8), "patch");
-      sideDef['textureMiddle'] = textures.fromName(stream.readAscii(8), "patch");
+      sideDef['textureUpper']  = textures.fromName(stream.readAscii(8));
+      sideDef['textureLower']  = textures.fromName(stream.readAscii(8));
+      sideDef['textureMiddle'] = textures.fromName(stream.readAscii(8));
       sideDef['sector']        = sectors.fromId(stream.read16lu());
       self._sideDefs.push(new context.DoomWad.SideDef(info, sideDef));
     }
@@ -1140,6 +1384,7 @@ function initDoomWadSideDefs(context) {
     return this._sideDefs[index];
   };
 }
+
 
 function initDoomWadStream(context) {
   /**
@@ -1452,11 +1697,8 @@ function initDoomWadStream(context) {
     this._ptr = this._stack.pop();
   };
 }
-function initDoomWadTexture(context) {
-  /**
-   * Constructor
-   */
 
+function initDoomWadTexture(context) {
   var renderFlat = function(stream, lumpHeader, texture, palette) {
     if (lumpHeader.size != 4096) {
       console.log("WARNING: FLAT '" + lumpHeader.name + "': lump size is not 4096, it is " + lumpHeader.size);
@@ -1470,14 +1712,14 @@ function initDoomWadTexture(context) {
     texture._left   = 0;
     texture._top    = 0;
 
-    texture._rgbaBuffer = new Array(4 * texture._width * texture._height);
+    texture._rgbaBuffer = new Uint8Array(4 * texture._width * texture._height);
 
     // Decode
     //texture._rgbaBuffer.fill(255);
 
-    for (var y = 0; y < texture._width; y++) {
-      for (var x = 0; x < texture._height; x++) {
-        var pixel = stream.read8u(y + (x*64));
+    for (var y = 0; y < texture._height; y++) {
+      for (var x = 0; x < texture._width; x++) {
+        var pixel = stream.read8u();
 
         // Look up pixel value in palette.
         var realPixel = palette.fromId(pixel);
@@ -1494,20 +1736,64 @@ function initDoomWadTexture(context) {
     }
   }
 
-  var Texture = context.DoomWad.Texture = function(stream, lumpHeader, palette) {
+  var renderTexture = function(stream, header, texture, palette) {
+    texture._width  = header.width;
+    texture._height = header.height;
+    texture._left   = 0;
+    texture._top    = 0;
+
+    texture._rgbaBuffer = new Uint8Array(4 * texture._width * texture._height);
+
+    header.patches.forEach(function(patchInfo) {
+      renderPatch(stream, patchInfo, patchInfo.patchObject, texture, palette);
+    });
+  };
+
+  var renderPatch = function(stream, patchInfo, patch, texture, palette) {
+    patch.eachColumn(function(spans, x) {
+      spans.forEach(function(info) {
+        const spanInfo = info[0];
+        const data     = info[1];
+
+        const textureX = x + patchInfo.originX;
+
+        for (var y = spanInfo.yOffset; y < (spanInfo.yOffset + spanInfo.nPixels) && (y + patchInfo.originY) < texture._height; y++) {
+          const textureY = y + patchInfo.originY;
+
+          const realPixel = data[y - spanInfo.yOffset];
+
+          // Write to buffer
+          texture._rgbaBuffer[(textureX + textureY * texture._width) * 4 + 0] = realPixel.red;
+          texture._rgbaBuffer[(textureX + textureY * texture._width) * 4 + 1] = realPixel.green;
+          texture._rgbaBuffer[(textureX + textureY * texture._width) * 4 + 2] = realPixel.blue;
+          texture._rgbaBuffer[(textureX + textureY * texture._width) * 4 + 3] = 255;
+        }
+      });
+    });
+  };
+
+  /**
+   * Constructor
+   */
+  var Texture = context.DoomWad.Texture = function(stream, header, palette) {
     var self = this;
 
     // Record the total size of the texture
-    self._size = lumpHeader['size'];
+    self._size = header['size'];
 
     // Record the name
-    self._name = lumpHeader['name'];
+    self._name = header['name'];
 
     // Record the namespace
-    self._namespace = lumpHeader['namespace'];
+    self._namespace = header['namespace'] || "global";
 
     // Decompress texture
-    renderFlat(stream, lumpHeader, self, palette);
+    if ('patches' in header) {
+      renderTexture(stream, header, self, palette);
+    }
+    else {
+      renderFlat(stream, header, self, palette);
+    }
 
     return self;
   };
@@ -1536,6 +1822,7 @@ function initDoomWadTexture(context) {
     return this._namespace;
   };
 }
+
 function initDoomWadTextures(context) {
   /**
    * Constructor
@@ -1560,7 +1847,145 @@ function initDoomWadTextures(context) {
     // Keep a reference of the palette.
     self._palette = palette;
 
+    // Keep a reference to the general info.
+    self._info = info;
+
     return self;
+  };
+
+  Textures.prototype.patchFromIndex = function(index) {
+    this._loadPatches();
+
+    var name = this._patchNames[index];
+
+    return this.patchFromName(name);
+  };
+
+  Textures.prototype.patchFromName = function(name) {
+    this._loadPatches();
+
+    if (this._patches[name] === null) {
+      const header = this._directory.lumpHeaderFor(name);
+      if (header) {
+        this._patches[name] = new context.DoomWad.Patch(this._stream, this._info, header, this._palette);
+      }
+      else {
+        console.log("WARNING:", "PATCH LUMP", name, ": not found");
+      }
+    }
+
+    return this._patches[name];
+  };
+
+  Textures.prototype._loadPatches = function() {
+    var self = this;
+
+    const lumpName = "PNAMES";
+
+    if (self._patchesLoaded === undefined) {
+      self._patchesLoaded = {};
+    }
+
+    if (self._patchesLoaded[lumpName]) {
+      return;
+    }
+
+    self._patchesLoaded[lumpName] = true;
+
+    self._patches = {};
+
+    var patches = self._directory.lumpHeaderFor(lumpName);
+    if (patches) {
+      self._stream.push();
+      self._stream.seek(patches.offset);
+
+      const numPatches = self._stream.read32lu();
+
+      self._patchNames = new Array(numPatches);
+
+      for (var i = 0; i < numPatches; i++) {
+        self._patchNames[i] = self._stream.readAscii(8);
+        self._patches[self._patchNames[i]] = null;
+      }
+
+      self._stream.pop();
+    }
+  };
+
+  Textures.prototype._loadTextureLump = function(lumpName) {
+    var self = this;
+
+    if (self._textures === undefined) {
+      self._textures = {};
+    }
+
+    if (self._texturesLoaded === undefined) {
+      self._texturesLoaded = {};
+    }
+
+    if (self._texturesLoaded[lumpName]) {
+      return;
+    }
+
+    self._texturesLoaded[lumpName] = true;
+
+    var textures = self._directory.lumpHeaderFor(lumpName);
+    if (textures) {
+      self._stream.push();
+      self._stream.seek(textures.offset);
+
+      var numTextures = self._stream.read32lu();
+
+      var textureRecords = new Array(numTextures);
+
+      for (var i = 0; i < numTextures; i++) {
+        textureRecords[i] = self._stream.read32lu();
+      }
+
+      for (var i = 0; i < numTextures; i++) {
+        self._stream.push();
+        self._stream.seek(textureRecords[i] + textures.offset);
+
+        textureRecords[i] = {
+          name:   self._stream.readAscii(8),
+          flags:  self._stream.read16lu(),   // ZDoom
+          scalex: self._stream.read8u(),     // ZDoom
+          scaley: self._stream.read8u(),     // ZDoom
+          width:  self._stream.read16lu(),
+          height: self._stream.read16lu(),
+          coldir: self._stream.read32lu(),
+          npatch: self._stream.read16lu(),
+          patches: []
+        };
+
+        self._textures[textureRecords[i].name] = textureRecords[i];
+
+        if (textureRecords[i].npatch > 1000) {
+          self._stream.pop();
+          self._stream.pop();
+          return;
+        }
+
+        for (var j = 0; j < textureRecords[i].npatch; j++) {
+          const patchInfo = {
+            originX:  self._stream.read16lu(),
+            originY:  self._stream.read16lu(),
+            patch:    self._stream.read16lu()
+          };
+
+          if (self._info.engine != "Strife") {
+            // Hop over 4 bytes for stepdir/colormap
+            // Strife doesn't put them in the patch file
+            self._stream.read32lu();
+          }
+
+          textureRecords[i].patches.push(patchInfo);
+        }
+        self._stream.pop();
+      }
+
+      self._stream.pop();
+    }
   };
 
   Textures.prototype.size = function() {
@@ -1573,6 +1998,12 @@ function initDoomWadTextures(context) {
   }
 
   Textures.prototype.fromName = function(name, namespace) {
+    var self = this;
+
+    if(name == "") {
+      throw "";
+    }
+
     if (namespace === undefined) {
       namespace = "global";
     }
@@ -1581,7 +2012,24 @@ function initDoomWadTextures(context) {
       this._cache[namespace] = {};
     }
 
-    if (!(name in this._cache[namespace])) {
+    this._loadTextureLump("TEXTURE1");
+    this._loadTextureLump("TEXTURE2");
+
+    if (namespace == "global") {
+      // Look for general texture
+      if (name in this._textures) {
+        if (!('textureObject' in this._textures[name])) {
+          // Realize the patches within the texture
+          this._textures[name].patches.forEach(function(patchInfo, i) {
+            self._textures[name].patches[i].patchObject = self.patchFromIndex(patchInfo.patch);
+          });
+          this._textures[name].textureObject = new context.DoomWad.Texture(this._stream, this._textures[name], this._palette);
+        }
+
+        return this._textures[name].textureObject;
+      }
+    }
+    else if (!(name in this._cache[namespace])) {
       var lumpHeader = this._directory.lumpHeaderFor(name, namespace);
       if (lumpHeader) {
         this._stream.push();
@@ -1594,11 +2042,15 @@ function initDoomWadTextures(context) {
 
         this._stream.pop();
       }
+      else {
+        console.log("Warning:", "lump section", name, namespace, "not found");
+      }
     }
 
     return this._cache[namespace][name];
   };
 }
+
 function initDoomWadThing(context) {
   /**
    * Constructor
@@ -1717,6 +2169,7 @@ function initDoomWadThing(context) {
     return "";
   };
 }
+
 function initDoomWadThings(context) {
   /**
    * Constructor
@@ -1770,6 +2223,7 @@ function initDoomWadThings(context) {
     return this._size;
   };
 }
+
 function initDoomWadThingsDoom(context) {
   /**
    * This collection represents all of the possible Things in a DOOM or DOOM2
@@ -3114,6 +3568,7 @@ function initDoomWadThingsDoom(context) {
     },
   };
 }
+
 function initDoomWadVertexes(context) {
   /**
    * Constructor
@@ -3188,4 +3643,5 @@ function initDoomWadVertexes(context) {
     return this._vertices;
   };
 }
+
 } (this));

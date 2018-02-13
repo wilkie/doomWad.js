@@ -30,6 +30,21 @@ function initDoomWadLineDef(context) {
     self._leftSideDef  = lineDefInfo['leftSideDef'];
   };
 
+  LineDef.prototype.magnitude = function() {
+    return Math.sqrt(
+      (this._start.x - this._end.x) * (this._start.x - this._end.x) +
+      (this._start.y - this._end.y) * (this._start.y - this._end.y)
+    );
+  };
+
+  LineDef.prototype.rightSideDef = function() {
+    return this._rightSideDef;
+  };
+
+  LineDef.prototype.leftSideDef = function() {
+    return this._leftSideDef;
+  };
+
   LineDef.prototype.size = function() {
     return this._size;
   };

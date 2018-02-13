@@ -51,13 +51,41 @@ function initDoomWadSectors(context) {
 
   Sectors.prototype.fromId = function(index) {
     return this._sectors[index];
-  }
+  };
 
   Sectors.prototype.forTag = function(tag) {
     return this._tags[tag].slice(0);
-  }
+  };
 
   Sectors.prototype.sectors = function() {
     return this._sectors.slice(0);
-  }
+  };
+
+  Sectors.prototype.minZ = function() {
+    var self = this;
+
+    if (!self._minZ) {
+      self._sectors.forEach(function(sector) {
+        if (self._minZ === undefined || sector.floor() < self._minZ) {
+          self._minZ = sector.floor();
+        }
+      });
+    }
+
+    return self._minZ;
+  };
+
+  Sectors.prototype.maxZ = function() {
+    var self = this;
+
+    if (!self._maxZ) {
+      self._sectors.forEach(function(sector) {
+        if (self._maxZ === undefined || sector.ceiling() > self._maxZ) {
+          self._maxZ = sector.ceiling();
+        }
+      });
+    }
+
+    return self._maxZ;
+  };
 }

@@ -36,6 +36,7 @@ var initDoomWad = function (context) {
   initDoomWadTextures(context);
   initDoomWadTexture(context);
   initDoomWadSectors(context);
+  initDoomWadPatch(context);
   initDoomWadSector(context);
   initDoomWadPlayPal(context);
 

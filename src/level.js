@@ -57,6 +57,9 @@ function initDoomWadLevel(context) {
     var minX = this._vertexes.minX();
     var maxX = this._vertexes.maxX();
 
+    var minZ = this._sectors.minZ();
+    var maxZ = this._sectors.maxZ();
+
     var width = maxX - minX;
 
     var minY = this._vertexes.minY();
@@ -68,7 +71,9 @@ function initDoomWadLevel(context) {
            "x": minX,
            "y": minY,
        "width": width,
-      "height": height
+      "height": height,
+       "floor": minZ,
+     "ceiling": maxZ,
     };
   };
 

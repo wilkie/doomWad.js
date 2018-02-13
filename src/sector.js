@@ -19,6 +19,18 @@ function initDoomWadSector(context) {
     return self;
   };
 
+  Sector.prototype.floor = function() {
+    return this._floorHeight;
+  };
+
+  Sector.prototype.ceiling = function() {
+    return this._ceilingHeight;
+  };
+
+  Sector.prototype.lineDefs = function() {
+    return this._lineDefs;
+  };
+
   Sector.prototype.size = function() {
     return this._size;
   };
@@ -71,6 +83,27 @@ function initDoomWadSector(context) {
        "width": this._maxX - this._minX,
       "height": this._maxY - this._minY
     };
+  };
+
+  // Returns the LineDef for the given pair of coordinates.
+  Sector.prototype.lineDefAt = function(x1, y1, x2, y2) {
+    for (var i = 0; i < this._lineDefs.length; i++) {
+      var lineDef = this._lineDefs[i];
+
+      var cx1 = lineDef.start().x;
+      var cy1 = lineDef.start().y;
+      var cx2 = lineDef.end().x;
+      var cy2 = lineDef.end().y;
+
+      if (cx1 == x1 && cy1 == y1 && cx2 == x2 && cy2 == y2) {
+        return lineDef;
+      }
+      else if (cx1 == x2 && cy1 == y2 && cx2 == x1 && cy2 == y1) {
+        return lineDef;
+      }
+    }
+
+    return null;
   };
 
   // Helper method that takes a list of lineDefs and a coordinate (x,y)
@@ -281,13 +314,16 @@ function initDoomWadSector(context) {
         var mainPolygon = masterPolygon(polygons);
         var subPolygons = polygonsWithin(polygons, mainPolygon);
 
-        self._polygons.push(ensurePolygonVertexOrder(mainPolygon, true));
+        mainPolygon = ensurePolygonVertexOrder(mainPolygon, true);
 
         subPolygons = subPolygons.map(function(polygon) {
           return ensurePolygonVertexOrder(polygon, false);
         });
 
-        self._polygons = self._polygons.concat(subPolygons);
+        self._polygons.push({
+          "shape": mainPolygon,
+          "holes": subPolygons
+        });
       }
     }
 
@@ -302,8 +338,13 @@ function initDoomWadSector(context) {
       self._vertices = [];
 
       var polygons = self.polygons();
-      polygons.forEach(function(polygon) {
+      polygons.forEach(function(info) {
+        var polygon = info.mainPolygon;
         self._vertices = self._vertices.concat(polygon);
+
+        info.holes.forEach(function(vertices) {
+          self._vertices = self._vertices.concat(vertices);
+        });
       });
     }
 

@@ -27,6 +27,7 @@ function initDoomWadDirectory(context) {
       var offset = stream.read32lu();
       var size   = stream.read32lu();
       var name   = stream.readAscii(8);
+      name = name.toUpperCase();
 
       // Check for namespace
       if (name === "F_START") {
@@ -55,6 +56,7 @@ function initDoomWadDirectory(context) {
 
       // Store lump header and link the last lumpHeader to this one.
       last["next"] = lumpHeader
+
       if (!(name in self._directory)) {
         self._directory[name] = [];
       }
@@ -70,6 +72,8 @@ function initDoomWadDirectory(context) {
   };
 
   Directory.prototype.lumpHeaderFor = function(name, namespace) {
+    name = name.toUpperCase();
+
     var list = this._directory[name];
 
     if (list === undefined) {
@@ -88,10 +92,14 @@ function initDoomWadDirectory(context) {
   };
 
   Directory.prototype.lumpExists = function(name) {
+    name = name.toUpperCase();
     return name in this._directory;
   };
 
   Directory.prototype.lumpHeaderAfter = function(afterLumpName, name) {
+    name = name.toUpperCase();
+    afterLumpName = afterLumpName.toUpperCase();
+
     var lumpStart = this.lumpHeaderFor(afterLumpName);
     var currentLump = lumpStart;
     var i = 0;

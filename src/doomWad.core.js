@@ -40,6 +40,8 @@ function initDoomWadCore (context) {
     // Read only (led by underscores)
     self._filename = filename;
 
+    self._levels = {};
+
     self._stream = new DoomWad.Stream(filename, function() {
       // Read header
       self._header    = new DoomWad.Header(self._stream);
@@ -56,10 +58,26 @@ function initDoomWadCore (context) {
       // Create a texture manager
       self._textures  = new DoomWad.Textures(self._stream, self._info, self._directory, self._palette);
 
-      // Retrieve level
-      if (self._directory.lumpExists("MAP26")) {
-        self._level = new DoomWad.Level(self._stream, self._info, self._directory, self._textures, "MAP26");
+      // Retrieve level list
+      var level_list = ["E1M1", "E1M2", "E1M3", "E1M4", "E1M5", "E1M6", "E1M7",
+                        "E1M8", "E1M9", "E2M1", "E2M2", "E2M3", "E2M4", "E2M5",
+                        "E2M6", "E2M7", "E2M8", "E2M9", "E3M1", "E3M2", "E3M3",
+                        "E3M4", "E3M5", "E3M6", "E3M7", "E3M8", "E3M9", "E4M1",
+                        "E4M2", "E4M3", "E4M4", "E4M5", "E4M6", "E4M7", "E4M8",
+                        "E4M9"];
+
+      if (self._info.engine() == "DOOM2") {
+        var level_list = ["MAP01", "MAP02", "MAP03", "MAP04", "MAP05", "MAP06",
+                          "MAP07", "MAP08", "MAP09", "MAP10", "MAP11", "MAP12",
+                          "MAP13", "MAP14", "MAP15", "MAP16", "MAP17", "MAP18",
+                          "MAP19", "MAP20", "MAP21", "MAP22", "MAP23", "MAP24",
+                          "MAP25", "MAP26", "MAP27", "MAP28", "MAP29", "MAP30",
+                          "MAP31", "MAP32"];
       }
+
+      self._levelNames = level_list.filter(function (name) {
+        return self._directory.lumpExists(name);
+      });
 
       ready();
     })
@@ -79,27 +97,40 @@ function initDoomWadCore (context) {
 
   DoomWad.prototype.header = function() {
     return this._header;
-  }
+  };
 
   DoomWad.prototype.flats = function() {
     return this._textures.forNamespace("flat");
-  }
+  };
 
   DoomWad.prototype.sectors = function() {
     return this._level.sectors();
-  }
+  };
 
   DoomWad.prototype.lineDefs = function() {
     return this._level.lineDefs();
-  }
+  };
 
   DoomWad.prototype.textureFromName = function(name, namespace) {
     return this._textures.fromName(name, namespace);
-  }
+  };
 
-  DoomWad.prototype.level = function() {
-    return this._level;
-  }
+  DoomWad.prototype.levelNames = function() {
+    return this._levelNames.slice();
+  };
+
+  DoomWad.prototype.level = function(name) {
+    if (!(name in this._levels)) {
+      if (this._directory.lumpExists(name)) {
+        this._levels[name] = new DoomWad.Level(this._stream,
+                                               this._info,
+                                               this._directory,
+                                               this._textures,
+                                               name);
+      }
+    }
+    return this._levels[name];
+  };
 
   // DEBUG CODE
   //

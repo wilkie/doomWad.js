@@ -25,6 +25,8 @@ function initDoomWadCore (context) {
   // var CORE_CONSTANT = true;
 
   // Private-Module Methods
+  
+
 
   /**
    * This is the constructor for the DoomWad Object.
@@ -34,29 +36,38 @@ function initDoomWadCore (context) {
    * configure this instance of the library.
    * @constructor
    */
-  var DoomWad = context.DoomWad = function(filename, ready) {
+  var DoomWad = context.DoomWad = function(filename, pwads, ready) {
     var self = this;
+
+    if (ready === undefined) {
+      ready = pwads;
+      pwads = undefined;
+    }
 
     // Read only (led by underscores)
     self._filename = filename;
 
     self._levels = {};
 
-    self._stream = new DoomWad.Stream(filename, function() {
+    self._streams = [];
+
+    var load = function() {
       // Read header
-      self._header    = new DoomWad.Header(self._stream);
+      self._headers = self._streams.map(function(stream) {
+        return new DoomWad.Header(stream);
+      });
 
       // Read Lump Directory
-      self._directory = new DoomWad.Directory(self._stream, self._header);
+      self._directory = new DoomWad.Directory(self._streams, self._headers);
 
       // Record WAD Information
-      self._info      = new DoomWad.Info(self._stream.size(), self._header, self._directory);
+      self._info      = new DoomWad.Info(self._streams[0].size(), self._headers[0], self._directory);
 
       // Pull in the palette
-      self._palette   = new DoomWad.PlayPal(self._stream, self._info, self._directory);
+      self._palette   = new DoomWad.PlayPal(self._info, self._directory);
 
       // Create a texture manager
-      self._textures  = new DoomWad.Textures(self._stream, self._info, self._directory, self._palette);
+      self._textures  = new DoomWad.Textures(self._info, self._directory, self._palette);
 
       // Retrieve level list
       var level_list = ["E1M1", "E1M2", "E1M3", "E1M4", "E1M5", "E1M6", "E1M7",
@@ -78,9 +89,33 @@ function initDoomWadCore (context) {
       self._levelNames = level_list.filter(function (name) {
         return self._directory.lumpExists(name);
       });
+    };
 
-      ready();
-    })
+    new DoomWad.Stream(filename, function() {
+      self._streams.push(this);
+
+      if (pwads) {
+        if (!Array.isArray(pwads)) {
+          pwads = [pwads];
+        }
+
+        var streamsReady = 0;
+
+        pwads.forEach(function(pwad) {
+          self._streams.push(new DoomWad.Stream(pwad, function() {
+            streamsReady++;
+            if (streamsReady == pwads.length) {
+              load();
+              ready();
+            }
+          }));
+        });
+      }
+      else {
+        load();
+        ready();
+      }
+    });
 
     return self;
   };
@@ -122,8 +157,7 @@ function initDoomWadCore (context) {
   DoomWad.prototype.level = function(name) {
     if (!(name in this._levels)) {
       if (this._directory.lumpExists(name)) {
-        this._levels[name] = new DoomWad.Level(this._stream,
-                                               this._info,
+        this._levels[name] = new DoomWad.Level(this._info,
                                                this._directory,
                                                this._textures,
                                                name);

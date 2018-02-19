@@ -25,7 +25,7 @@ function initDoomWadStream(context) {
       self._loaded = true;
 
       // Notify caller
-      ready();
+      ready.call(self);
     };
 
     oReq.send(null);

@@ -1,22 +1,23 @@
 function initDoomWadPlayPal(context) {
   'use strict';
 
-  var PlayPal = context.DoomWad.PlayPal = function(stream, info, directory) {
+  var PlayPal = context.DoomWad.PlayPal = function(info, directory) {
     var self = this;
 
-    var lumpHeader = directory.lumpHeaderFor("PLAYPAL");
+    const lump = directory.lumpHeaderFor("PLAYPAL");
+    const stream = lump.stream;
 
     var palettes = [];
 
-    if (info.engine() === "Hexen" && lumpHeader.size != 21504) {
+    if (info.engine() === "Hexen" && lump.header.size != 21504) {
       console.log("ERROR: PLAYPAL: lump size is not 28 * 768 (21504), it is " + lump.size + " (Hexen)");
     }
-    else if (lumpHeader.size != 10752) {
+    else if (lump.header.size != 10752) {
       console.log("ERROR: PLAYPAL: lump size is not 14 * 768 (10752), it is " + lump.size);
     }
 
     // Seek to the palette lump
-    stream.seek(lumpHeader.offset);
+    stream.seek(lump.header.offset);
 
     // We only ever read the first palette
     var buffer = stream.read(256 * 3);

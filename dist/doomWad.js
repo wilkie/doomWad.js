@@ -28,6 +28,8 @@ function initDoomWadCore (context) {
   // var CORE_CONSTANT = true;
 
   // Private-Module Methods
+  
+
 
   /**
    * This is the constructor for the DoomWad Object.
@@ -37,29 +39,38 @@ function initDoomWadCore (context) {
    * configure this instance of the library.
    * @constructor
    */
-  var DoomWad = context.DoomWad = function(filename, ready) {
+  var DoomWad = context.DoomWad = function(filename, pwads, ready) {
     var self = this;
+
+    if (ready === undefined) {
+      ready = pwads;
+      pwads = undefined;
+    }
 
     // Read only (led by underscores)
     self._filename = filename;
 
     self._levels = {};
 
-    self._stream = new DoomWad.Stream(filename, function() {
+    self._streams = [];
+
+    var load = function() {
       // Read header
-      self._header    = new DoomWad.Header(self._stream);
+      self._headers = self._streams.map(function(stream) {
+        return new DoomWad.Header(stream);
+      });
 
       // Read Lump Directory
-      self._directory = new DoomWad.Directory(self._stream, self._header);
+      self._directory = new DoomWad.Directory(self._streams, self._headers);
 
       // Record WAD Information
-      self._info      = new DoomWad.Info(self._stream.size(), self._header, self._directory);
+      self._info      = new DoomWad.Info(self._streams[0].size(), self._headers[0], self._directory);
 
       // Pull in the palette
-      self._palette   = new DoomWad.PlayPal(self._stream, self._info, self._directory);
+      self._palette   = new DoomWad.PlayPal(self._info, self._directory);
 
       // Create a texture manager
-      self._textures  = new DoomWad.Textures(self._stream, self._info, self._directory, self._palette);
+      self._textures  = new DoomWad.Textures(self._info, self._directory, self._palette);
 
       // Retrieve level list
       var level_list = ["E1M1", "E1M2", "E1M3", "E1M4", "E1M5", "E1M6", "E1M7",
@@ -81,9 +92,33 @@ function initDoomWadCore (context) {
       self._levelNames = level_list.filter(function (name) {
         return self._directory.lumpExists(name);
       });
+    };
 
-      ready();
-    })
+    new DoomWad.Stream(filename, function() {
+      self._streams.push(this);
+
+      if (pwads) {
+        if (!Array.isArray(pwads)) {
+          pwads = [pwads];
+        }
+
+        var streamsReady = 0;
+
+        pwads.forEach(function(pwad) {
+          self._streams.push(new DoomWad.Stream(pwad, function() {
+            streamsReady++;
+            if (streamsReady == pwads.length) {
+              load();
+              ready();
+            }
+          }));
+        });
+      }
+      else {
+        load();
+        ready();
+      }
+    });
 
     return self;
   };
@@ -125,8 +160,7 @@ function initDoomWadCore (context) {
   DoomWad.prototype.level = function(name) {
     if (!(name in this._levels)) {
       if (this._directory.lumpExists(name)) {
-        this._levels[name] = new DoomWad.Level(this._stream,
-                                               this._info,
+        this._levels[name] = new DoomWad.Level(this._info,
                                                this._directory,
                                                this._textures,
                                                name);
@@ -150,74 +184,87 @@ function initDoomWadDirectory(context) {
    * Constructor
    */
 
-  var Directory = context.DoomWad.Directory = function(stream, header) {
+  var Directory = context.DoomWad.Directory = function(streams, headers) {
     var self = this;
 
-    // Get the number of lumps from the header.
-    var lumpCount = header.numberOfLumps();
+    self._size = 0;
 
-    // Go to the lump directory.
-    stream.seek(header.directoryStart());
+    self._directories = streams.map(function(stream, i) {
+      const header = headers[i];
 
-    self._size = 16 * lumpCount;
-    self._directory = {};
-    self._namespaces = {};
+      // Get the number of lumps from the header.
+      const lumpCount = header.numberOfLumps();
 
-    var last = {};
+      // Go to the lump directory.
+      stream.seek(header.directoryStart());
 
-    var inFlats = false;
-    var inSprites = false;
-    var namespace = "global";
-
-    // Start reading off each lump.
-    for (var i = 0; i < lumpCount; i++) {
-      // Read lump header
-      var offset = stream.read32lu();
-      var size   = stream.read32lu();
-      var name   = stream.readAscii(8);
-      name = name.toUpperCase();
-
-      // Check for namespace
-      if (name === "F_START") {
-        inFlats = true;
-        namespace = "flat";
-      }
-      else if (name === "F_END") {
-        inFlats = false;
-        namespace = "global";
-      }
-      if (name === "S_START") {
-        inSprites = true;
-        namespace = "sprite";
-      }
-      else if (name === "S_END") {
-        inSprites = false;
-        namespace = "global";
-      }
-
-      var lumpHeader = {
-        "size": size,
-        "offset": offset,
-        "name": name,
-        "namespace": namespace
+      ret = {
+        stream:     stream,
+        size:       16 * lumpCount,
+        directory:  {},
+        namespaces: {}
       };
 
-      // Store lump header and link the last lumpHeader to this one.
-      last["next"] = lumpHeader
+      self._size += ret.size;
 
-      if (!(name in self._directory)) {
-        self._directory[name] = [];
-      }
-      self._directory[name].push(lumpHeader);
+      var last = {};
 
-      if (namespace != "global") {
-        if (!(namespace in self._namespaces)) {
-          self._namespaces[namespace] = [];
+      var inFlats = false;
+      var inSprites = false;
+      var namespace = "global";
+
+      // Start reading off each lump.
+      for (var i = 0; i < lumpCount; i++) {
+        // Read lump header
+        var offset = stream.read32lu();
+        var size   = stream.read32lu();
+        var name   = stream.readAscii(8);
+        name = name.toUpperCase();
+
+        // Check for namespace
+        if (name === "F_START") {
+          inFlats = true;
+          namespace = "flat";
         }
-        self._namespaces[namespace].push(lumpHeader);
+        else if (name === "F_END") {
+          inFlats = false;
+          namespace = "global";
+        }
+        if (name === "S_START") {
+          inSprites = true;
+          namespace = "sprite";
+        }
+        else if (name === "S_END") {
+          inSprites = false;
+          namespace = "global";
+        }
+
+        var lumpHeader = {
+          "size": size,
+          "offset": offset,
+          "name": name,
+          "namespace": namespace
+        };
+
+        // Store lump header and link the last lumpHeader to this one.
+        last["next"] = lumpHeader
+
+        if (!(name in ret.directory)) {
+          ret.directory[name] = [];
+        }
+        ret.directory[name].push(lumpHeader);
+
+        if (namespace != "global") {
+          if (!(namespace in ret.namespaces)) {
+            ret.namespaces[namespace] = [];
+          }
+          ret.namespaces[namespace].push(lumpHeader);
+        }
+        last = lumpHeader;
       }
-      last = lumpHeader;
-    }
+
+      return ret;
+    }).reverse();
 
     return self;
   };
@@ -227,48 +274,67 @@ function initDoomWadDirectory(context) {
   };
 
   Directory.prototype.lumpsFor = function(namespace) {
-    return this._namespaces[namespace] || [];
+    return this._directories[0].namespaces[namespace] || [];
   };
 
   Directory.prototype.lumpHeaderFor = function(name, namespace) {
     name = name.toUpperCase();
 
-    var list = this._directory[name];
+    for (var i = 0; i < this._directories.length; i++) {
+      const wad = this._directories[i];
 
-    if (list === undefined) {
-      return null;
-    }
+      var list = wad.directory[name];
 
-    if (namespace !== undefined) {
-      for (var i = 0; i < this._directory[name].length; i++) {
-        if (this._directory[name][i].namespace === namespace) {
-          return this._directory[name][i];
+      if (list) {
+        if (namespace !== undefined) {
+          for (var i = 0; i < wad.directory[name].length; i++) {
+            if (wad.directory[name][i].namespace === namespace) {
+              return {
+                stream: wad.stream,
+                header: wad.directory[name][i]
+              }
+            }
+          }
+          return null;
         }
+
+        return {
+          stream: wad.stream,
+          header: wad.directory[name][0]
+        }
+      }
+    };
+
+    return null;
+  };
+
+  Directory.prototype.lumpExists = function(name, excludePWAD) {
+    name = name.toUpperCase();
+
+    for (var i = 0; i < (excludePWAD ? 0 : this._directories.length); i++) {
+      const wad = this._directories[i];
+
+      if (name in wad.directory) {
+        return true;
       }
     }
 
-    return this._directory[name][0];
+    return false;
   };
 
-  Directory.prototype.lumpExists = function(name) {
+  Directory.prototype.lumpHeaderAfter = function(afterLump, name) {
     name = name.toUpperCase();
-    return name in this._directory;
-  };
 
-  Directory.prototype.lumpHeaderAfter = function(afterLumpName, name) {
-    name = name.toUpperCase();
-    afterLumpName = afterLumpName.toUpperCase();
-
-    var lumpStart = this.lumpHeaderFor(afterLumpName);
+    var lumpStart = afterLump;
     var currentLump = lumpStart;
     var i = 0;
-    while (currentLump && (currentLump['name'] != name)) {
+    while (currentLump && (currentLump.name != name)) {
       i += 1;
       if (i >= 25) {
         return null;
       }
 
-      currentLump = currentLump['next'];
+      currentLump = currentLump.next;
     }
 
     return currentLump;
@@ -404,7 +470,7 @@ function initDoomWadInfo(context) {
 
     // Detect the intended engine
     if (directory.lumpExists("MAP01")) {
-      if (directory.lumpExists("TITLE") || directory.lumpExists("BEHAVIOR")) {
+      if (directory.lumpExists("TITLE") || directory.lumpExists("BEHAVIOR", true)) {
         self._engine = "Hexen";
       }
       else {
@@ -443,49 +509,51 @@ function initDoomWadLevel(context) {
    * Constructor
    */
 
-  var Level = context.DoomWad.Level = function(stream, info, directory, textures, name) {
+  var Level = context.DoomWad.Level = function(info, directory, textures, name) {
     var self = this;
 
     // Level lump header (eg MAP01)
-    var levelLumpHeader = directory.lumpHeaderFor(name);
+    const levelLump = directory.lumpHeaderFor(name); 
+    const header = levelLump.header;
+    const stream = levelLump.stream;
 
     // The level lump is empty. It just marks the first lump of the level.
     // The rest of the lumps should be read in linearly. So go through
     // each lump after this one.
 
-    var nextLump = levelLumpHeader['next'];
+    var nextLump = header;
 
     // Look for the THINGS lump which contain the interactive objects in the
     // level
-    var thingsLump = directory.lumpHeaderAfter(name, "THINGS");
+    var thingsLump = directory.lumpHeaderAfter(header, "THINGS");
     if (thingsLump) {
       self._things = new DoomWad.Things(stream, info, thingsLump);
     }
 
     // Look for the VERTEXES lump which contains the vertex geometry of the
     // level
-    var vertexesLump = directory.lumpHeaderAfter(name, "VERTEXES");
+    var vertexesLump = directory.lumpHeaderAfter(header, "VERTEXES");
     if (vertexesLump) {
       self._vertexes = new DoomWad.Vertexes(stream, info, vertexesLump);
     }
 
     // Look for the SECTORS lump which contains the polygon information for the
     // level
-    var sectorsLump = directory.lumpHeaderAfter(name, "SECTORS");
+    var sectorsLump = directory.lumpHeaderAfter(header, "SECTORS");
     if (sectorsLump) {
       self._sectors = new DoomWad.Sectors(stream, info, sectorsLump, textures);
     }
 
     // Look for the SIDEDEFS lump which contains information about texturing
     // walls of the map.
-    var sideDefsLump = directory.lumpHeaderAfter(name, "SIDEDEFS");
+    var sideDefsLump = directory.lumpHeaderAfter(header, "SIDEDEFS");
     if (sideDefsLump) {
       self._sideDefs = new DoomWad.SideDefs(stream, info, sideDefsLump, self._sectors, textures);
     }
 
     // Look for the LINEDEFS lump which contains information about lines
     // between vertices in the level.
-    var lineDefsLump = directory.lumpHeaderAfter(name, "LINEDEFS");
+    var lineDefsLump = directory.lumpHeaderAfter(header, "LINEDEFS");
     if (lineDefsLump) {
       self._lineDefs = new DoomWad.LineDefs(stream, info, lineDefsLump, self._vertexes, self._sideDefs);
     }
@@ -823,22 +891,23 @@ function initDoomWadPatch(context) {
 function initDoomWadPlayPal(context) {
   'use strict';
 
-  var PlayPal = context.DoomWad.PlayPal = function(stream, info, directory) {
+  var PlayPal = context.DoomWad.PlayPal = function(info, directory) {
     var self = this;
 
-    var lumpHeader = directory.lumpHeaderFor("PLAYPAL");
+    const lump = directory.lumpHeaderFor("PLAYPAL");
+    const stream = lump.stream;
 
     var palettes = [];
 
-    if (info.engine() === "Hexen" && lumpHeader.size != 21504) {
+    if (info.engine() === "Hexen" && lump.header.size != 21504) {
       console.log("ERROR: PLAYPAL: lump size is not 28 * 768 (21504), it is " + lump.size + " (Hexen)");
     }
-    else if (lumpHeader.size != 10752) {
+    else if (lump.header.size != 10752) {
       console.log("ERROR: PLAYPAL: lump size is not 14 * 768 (10752), it is " + lump.size);
     }
 
     // Seek to the palette lump
-    stream.seek(lumpHeader.offset);
+    stream.seek(lump.header.offset);
 
     // We only ever read the first palette
     var buffer = stream.read(256 * 3);
@@ -1469,7 +1538,7 @@ function initDoomWadStream(context) {
       self._loaded = true;
 
       // Notify caller
-      ready();
+      ready.call(self);
     };
 
     oReq.send(null);
@@ -1893,7 +1962,7 @@ function initDoomWadTextures(context) {
    * Constructor
    */
 
-  var Textures = context.DoomWad.Textures = function(stream, info, directory, palette) {
+  var Textures = context.DoomWad.Textures = function(info, directory, palette) {
     var self = this;
 
     // Record the total size of all known textures in bytes
@@ -1905,9 +1974,6 @@ function initDoomWadTextures(context) {
 
     // Keep a reference to the directory.
     self._directory = directory;
-
-    // Keep a reference to the stream.
-    self._stream = stream;
 
     // Keep a reference of the palette.
     self._palette = palette;
@@ -1930,9 +1996,12 @@ function initDoomWadTextures(context) {
     this._loadPatches();
 
     if (this._patches[name] === null) {
-      const header = this._directory.lumpHeaderFor(name);
+      const lump = this._directory.lumpHeaderFor(name);
+      const header = lump.header;
+      const stream = lump.stream;
+
       if (header) {
-        this._patches[name] = new context.DoomWad.Patch(this._stream, this._info, header, this._palette);
+        this._patches[name] = new context.DoomWad.Patch(stream, this._info, header, this._palette);
       }
       else {
         console.log("WARNING:", "PATCH LUMP", name, ": not found");
@@ -1950,13 +2019,17 @@ function initDoomWadTextures(context) {
     }
 
     if (!self._spritesLoaded[name]) {
-      var patch = self._directory.lumpHeaderFor(name, "sprite");
+      var lump = self._directory.lumpHeaderFor(name, "sprite");
+      const patch  = lump.header;
+      const stream = lump.stream;
+
       patch.originX = 0;
       patch.originY = 0;
       patch.patch   = name;
       if (patch) {
         self._spritesLoaded[name] = patch;
-        self._spritesLoaded[name].patchObject = new context.DoomWad.Patch(self._stream, self._info, patch, self._palette);
+        self._spritesLoaded[name].stream = stream;
+        self._spritesLoaded[name].patchObject = new context.DoomWad.Patch(stream, self._info, patch, self._palette);
       }
     }
 
@@ -1982,19 +2055,22 @@ function initDoomWadTextures(context) {
 
     var patches = self._directory.lumpHeaderFor(lumpName);
     if (patches) {
-      self._stream.push();
-      self._stream.seek(patches.offset);
+      const stream = patches.stream;
+      const header = patches.header;
 
-      const numPatches = self._stream.read32lu();
+      stream.push();
+      stream.seek(header.offset);
+
+      const numPatches = stream.read32lu();
 
       self._patchNames = new Array(numPatches);
 
       for (var i = 0; i < numPatches; i++) {
-        self._patchNames[i] = self._stream.readAscii(8);
+        self._patchNames[i] = stream.readAscii(8);
         self._patches[self._patchNames[i]] = null;
       }
 
-      self._stream.pop();
+      stream.pop();
     }
   };
 
@@ -2017,60 +2093,64 @@ function initDoomWadTextures(context) {
 
     var textures = self._directory.lumpHeaderFor(lumpName);
     if (textures) {
-      self._stream.push();
-      self._stream.seek(textures.offset);
+      const stream = textures.stream;
+      const header = textures.header;
 
-      var numTextures = self._stream.read32lu();
+      stream.push();
+      stream.seek(header.offset);
+
+      var numTextures = stream.read32lu();
 
       var textureRecords = new Array(numTextures);
 
       for (var i = 0; i < numTextures; i++) {
-        textureRecords[i] = self._stream.read32lu();
+        textureRecords[i] = stream.read32lu();
       }
 
       for (var i = 0; i < numTextures; i++) {
-        self._stream.push();
-        self._stream.seek(textureRecords[i] + textures.offset);
+        stream.push();
+        stream.seek(textureRecords[i] + header.offset);
 
         textureRecords[i] = {
-          name:   self._stream.readAscii(8),
-          flags:  self._stream.read16lu(),   // ZDoom
-          scalex: self._stream.read8u(),     // ZDoom
-          scaley: self._stream.read8u(),     // ZDoom
-          width:  self._stream.read16lu(),
-          height: self._stream.read16lu(),
-          coldir: self._stream.read32lu(),
-          npatch: self._stream.read16lu(),
-          patches: []
+          name:   stream.readAscii(8),
+          flags:  stream.read16lu(),   // ZDoom
+          scalex: stream.read8u(),     // ZDoom
+          scaley: stream.read8u(),     // ZDoom
+          width:  stream.read16lu(),
+          height: stream.read16lu(),
+          coldir: stream.read32lu(),
+          npatch: stream.read16lu(),
+          patches: [],
+          stream: stream
         };
 
         self._textures[textureRecords[i].name.toUpperCase()] = textureRecords[i];
 
         if (textureRecords[i].npatch > 1000) {
-          self._stream.pop();
-          self._stream.pop();
+          stream.pop();
+          stream.pop();
           return;
         }
 
         for (var j = 0; j < textureRecords[i].npatch; j++) {
           const patchInfo = {
-            originX:  self._stream.read16ls(),
-            originY:  self._stream.read16ls(),
-            patch:    self._stream.read16lu()
+            originX:  stream.read16ls(),
+            originY:  stream.read16ls(),
+            patch:    stream.read16lu()
           };
 
           if (self._info.engine != "Strife") {
             // Hop over 4 bytes for stepdir/colormap
             // Strife doesn't put them in the patch file
-            self._stream.read32lu();
+            stream.read32lu();
           }
 
           textureRecords[i].patches.push(patchInfo);
         }
-        self._stream.pop();
+        stream.pop();
       }
 
-      self._stream.pop();
+      stream.pop();
     }
   };
 
@@ -2087,7 +2167,7 @@ function initDoomWadTextures(context) {
     var self = this;
 
     if(name == "") {
-      throw "";
+      return null;
     }
 
     if (namespace === undefined) {
@@ -2111,7 +2191,8 @@ function initDoomWadTextures(context) {
           this._textures[name].patches.forEach(function(patchInfo, i) {
             self._textures[name].patches[i].patchObject = self.patchFromIndex(patchInfo.patch);
           });
-          this._textures[name].textureObject = new context.DoomWad.Texture(this._stream, this._textures[name], this._palette);
+
+          this._textures[name].textureObject = new context.DoomWad.Texture(this._textures[name].stream, this._textures[name], this._palette);
         }
 
         return this._textures[name].textureObject;
@@ -2122,17 +2203,20 @@ function initDoomWadTextures(context) {
     }
     else if (!(name in this._cache[namespace])) {
       if (namespace == "flat") {
-        var lumpHeader = this._directory.lumpHeaderFor(name, namespace);
-        if (lumpHeader) {
-          this._stream.push();
-          var texture  = new context.DoomWad.Texture(this._stream, lumpHeader, this._palette);
+        var lump = this._directory.lumpHeaderFor(name, namespace);
+        if (lump) {
+          const stream = lump.stream;
+          const lumpHeader = lump.header;
+
+          stream.push();
+          var texture  = new context.DoomWad.Texture(stream, lumpHeader, this._palette);
           this._cache[namespace][name] = texture;
 
           if (!(name in this._cache["global"])) {
-            this._cache["global"][name]  = texture;
+            this._cache["global"][name] = texture;
           }
 
-          this._stream.pop();
+          stream.pop();
         }
         else {
           console.log("Warning:", "lump section", name, namespace, "not found");
@@ -2140,7 +2224,7 @@ function initDoomWadTextures(context) {
       }
       else {
         // It is a simple, single patch
-        this._cache[namespace][name] = new context.DoomWad.Texture(this._stream, {
+        this._cache[namespace][name] = new context.DoomWad.Texture(this._loadSprite(name).stream, {
           'patches': [this._loadSprite(name)],
           'size': 0,
           'name': name,

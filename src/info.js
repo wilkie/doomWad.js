@@ -11,7 +11,7 @@ function initDoomWadInfo(context) {
 
     // Detect the intended engine
     if (directory.lumpExists("MAP01")) {
-      if (directory.lumpExists("TITLE") || directory.lumpExists("BEHAVIOR")) {
+      if (directory.lumpExists("TITLE") || directory.lumpExists("BEHAVIOR", true)) {
         self._engine = "Hexen";
       }
       else {

@@ -3,74 +3,87 @@ function initDoomWadDirectory(context) {
    * Constructor
    */
 
-  var Directory = context.DoomWad.Directory = function(stream, header) {
+  var Directory = context.DoomWad.Directory = function(streams, headers) {
     var self = this;
 
-    // Get the number of lumps from the header.
-    var lumpCount = header.numberOfLumps();
+    self._size = 0;
 
-    // Go to the lump directory.
-    stream.seek(header.directoryStart());
+    self._directories = streams.map(function(stream, i) {
+      const header = headers[i];
 
-    self._size = 16 * lumpCount;
-    self._directory = {};
-    self._namespaces = {};
+      // Get the number of lumps from the header.
+      const lumpCount = header.numberOfLumps();
 
-    var last = {};
+      // Go to the lump directory.
+      stream.seek(header.directoryStart());
 
-    var inFlats = false;
-    var inSprites = false;
-    var namespace = "global";
-
-    // Start reading off each lump.
-    for (var i = 0; i < lumpCount; i++) {
-      // Read lump header
-      var offset = stream.read32lu();
-      var size   = stream.read32lu();
-      var name   = stream.readAscii(8);
-      name = name.toUpperCase();
-
-      // Check for namespace
-      if (name === "F_START") {
-        inFlats = true;
-        namespace = "flat";
-      }
-      else if (name === "F_END") {
-        inFlats = false;
-        namespace = "global";
-      }
-      if (name === "S_START") {
-        inSprites = true;
-        namespace = "sprite";
-      }
-      else if (name === "S_END") {
-        inSprites = false;
-        namespace = "global";
-      }
-
-      var lumpHeader = {
-        "size": size,
-        "offset": offset,
-        "name": name,
-        "namespace": namespace
+      ret = {
+        stream:     stream,
+        size:       16 * lumpCount,
+        directory:  {},
+        namespaces: {}
       };
 
-      // Store lump header and link the last lumpHeader to this one.
-      last["next"] = lumpHeader
+      self._size += ret.size;
 
-      if (!(name in self._directory)) {
-        self._directory[name] = [];
-      }
-      self._directory[name].push(lumpHeader);
+      var last = {};
 
-      if (namespace != "global") {
-        if (!(namespace in self._namespaces)) {
-          self._namespaces[namespace] = [];
+      var inFlats = false;
+      var inSprites = false;
+      var namespace = "global";
+
+      // Start reading off each lump.
+      for (var i = 0; i < lumpCount; i++) {
+        // Read lump header
+        var offset = stream.read32lu();
+        var size   = stream.read32lu();
+        var name   = stream.readAscii(8);
+        name = name.toUpperCase();
+
+        // Check for namespace
+        if (name === "F_START") {
+          inFlats = true;
+          namespace = "flat";
         }
-        self._namespaces[namespace].push(lumpHeader);
+        else if (name === "F_END") {
+          inFlats = false;
+          namespace = "global";
+        }
+        if (name === "S_START") {
+          inSprites = true;
+          namespace = "sprite";
+        }
+        else if (name === "S_END") {
+          inSprites = false;
+          namespace = "global";
+        }
+
+        var lumpHeader = {
+          "size": size,
+          "offset": offset,
+          "name": name,
+          "namespace": namespace
+        };
+
+        // Store lump header and link the last lumpHeader to this one.
+        last["next"] = lumpHeader
+
+        if (!(name in ret.directory)) {
+          ret.directory[name] = [];
+        }
+        ret.directory[name].push(lumpHeader);
+
+        if (namespace != "global") {
+          if (!(namespace in ret.namespaces)) {
+            ret.namespaces[namespace] = [];
+          }
+          ret.namespaces[namespace].push(lumpHeader);
+        }
+        last = lumpHeader;
       }
-      last = lumpHeader;
-    }
+
+      return ret;
+    }).reverse();
 
     return self;
   };
@@ -80,48 +93,67 @@ function initDoomWadDirectory(context) {
   };
 
   Directory.prototype.lumpsFor = function(namespace) {
-    return this._namespaces[namespace] || [];
+    return this._directories[0].namespaces[namespace] || [];
   };
 
   Directory.prototype.lumpHeaderFor = function(name, namespace) {
     name = name.toUpperCase();
 
-    var list = this._directory[name];
+    for (var i = 0; i < this._directories.length; i++) {
+      const wad = this._directories[i];
 
-    if (list === undefined) {
-      return null;
-    }
+      var list = wad.directory[name];
 
-    if (namespace !== undefined) {
-      for (var i = 0; i < this._directory[name].length; i++) {
-        if (this._directory[name][i].namespace === namespace) {
-          return this._directory[name][i];
+      if (list) {
+        if (namespace !== undefined) {
+          for (var i = 0; i < wad.directory[name].length; i++) {
+            if (wad.directory[name][i].namespace === namespace) {
+              return {
+                stream: wad.stream,
+                header: wad.directory[name][i]
+              }
+            }
+          }
+          return null;
         }
+
+        return {
+          stream: wad.stream,
+          header: wad.directory[name][0]
+        }
+      }
+    };
+
+    return null;
+  };
+
+  Directory.prototype.lumpExists = function(name, excludePWAD) {
+    name = name.toUpperCase();
+
+    for (var i = 0; i < (excludePWAD ? 0 : this._directories.length); i++) {
+      const wad = this._directories[i];
+
+      if (name in wad.directory) {
+        return true;
       }
     }
 
-    return this._directory[name][0];
+    return false;
   };
 
-  Directory.prototype.lumpExists = function(name) {
+  Directory.prototype.lumpHeaderAfter = function(afterLump, name) {
     name = name.toUpperCase();
-    return name in this._directory;
-  };
 
-  Directory.prototype.lumpHeaderAfter = function(afterLumpName, name) {
-    name = name.toUpperCase();
-    afterLumpName = afterLumpName.toUpperCase();
-
-    var lumpStart = this.lumpHeaderFor(afterLumpName);
+    var lumpStart = afterLump;
     var currentLump = lumpStart;
     var i = 0;
-    while (currentLump && (currentLump['name'] != name)) {
+    while (currentLump && (currentLump.name != name)) {
       i += 1;
       if (i >= 25) {
         return null;
       }
 
-      currentLump = currentLump['next'];
+      currentLump = currentLump.next;
     }
 
     return currentLump;

@@ -14,6 +14,7 @@ function initDoomWadDirectory(context) {
 
     self._size = 16 * lumpCount;
     self._directory = {};
+    self._namespaces = {};
 
     var last = {};
 
@@ -61,6 +62,13 @@ function initDoomWadDirectory(context) {
         self._directory[name] = [];
       }
       self._directory[name].push(lumpHeader);
+
+      if (namespace != "global") {
+        if (!(namespace in self._namespaces)) {
+          self._namespaces[namespace] = [];
+        }
+        self._namespaces[namespace].push(lumpHeader);
+      }
       last = lumpHeader;
     }
 
@@ -69,6 +77,10 @@ function initDoomWadDirectory(context) {
 
   Directory.prototype.size = function() {
     return this._size;
+  };
+
+  Directory.prototype.lumpsFor = function(namespace) {
+    return this._namespaces[namespace] || [];
   };
 
   Directory.prototype.lumpHeaderFor = function(name, namespace) {

@@ -52,6 +52,27 @@ function initDoomWadTextures(context) {
     return this._patches[name];
   };
 
+  Textures.prototype._loadSprite = function(name) {
+    var self = this;
+
+    if (self._spritesLoaded === undefined) {
+      self._spritesLoaded = {};
+    }
+
+    if (!self._spritesLoaded[name]) {
+      var patch = self._directory.lumpHeaderFor(name, "sprite");
+      patch.originX = 0;
+      patch.originY = 0;
+      patch.patch   = name;
+      if (patch) {
+        self._spritesLoaded[name] = patch;
+        self._spritesLoaded[name].patchObject = new context.DoomWad.Patch(self._stream, self._info, patch, self._palette);
+      }
+    }
+
+    return self._spritesLoaded[name];
+  };
+
   Textures.prototype._loadPatches = function() {
     var self = this;
 
@@ -133,7 +154,7 @@ function initDoomWadTextures(context) {
           patches: []
         };
 
-        self._textures[textureRecords[i].name] = textureRecords[i];
+        self._textures[textureRecords[i].name.toUpperCase()] = textureRecords[i];
 
         if (textureRecords[i].npatch > 1000) {
           self._stream.pop();
@@ -143,8 +164,8 @@ function initDoomWadTextures(context) {
 
         for (var j = 0; j < textureRecords[i].npatch; j++) {
           const patchInfo = {
-            originX:  self._stream.read16lu(),
-            originY:  self._stream.read16lu(),
+            originX:  self._stream.read16ls(),
+            originY:  self._stream.read16ls(),
             patch:    self._stream.read16lu()
           };
 
@@ -191,6 +212,8 @@ function initDoomWadTextures(context) {
     this._loadTextureLump("TEXTURE2");
 
     if (namespace == "global") {
+      name = name.toUpperCase();
+
       // Look for general texture
       if (name in this._textures) {
         if (!('textureObject' in this._textures[name])) {
@@ -203,22 +226,38 @@ function initDoomWadTextures(context) {
 
         return this._textures[name].textureObject;
       }
+      else if (name != "-") {
+        console.log("WARNING: cannot find texture", name);
+      }
     }
     else if (!(name in this._cache[namespace])) {
-      var lumpHeader = this._directory.lumpHeaderFor(name, namespace);
-      if (lumpHeader) {
-        this._stream.push();
-        var texture  = new context.DoomWad.Texture(this._stream, lumpHeader, this._palette);
-        this._cache[namespace][name] = texture;
+      if (namespace == "flat") {
+        var lumpHeader = this._directory.lumpHeaderFor(name, namespace);
+        if (lumpHeader) {
+          this._stream.push();
+          var texture  = new context.DoomWad.Texture(this._stream, lumpHeader, this._palette);
+          this._cache[namespace][name] = texture;
 
-        if (!(name in this._cache["global"])) {
-          this._cache["global"][name]  = texture;
+          if (!(name in this._cache["global"])) {
+            this._cache["global"][name]  = texture;
+          }
+
+          this._stream.pop();
         }
-
-        this._stream.pop();
+        else {
+          console.log("Warning:", "lump section", name, namespace, "not found");
+        }
       }
       else {
-        console.log("Warning:", "lump section", name, namespace, "not found");
+        // It is a simple, single patch
+        this._cache[namespace][name] = new context.DoomWad.Texture(this._stream, {
+          'patches': [this._loadSprite(name)],
+          'size': 0,
+          'name': name,
+          'width': this._loadSprite(name).patchObject.width(),
+          'height': this._loadSprite(name).patchObject.height(),
+          'namespace': namespace
+        }, this._palette);
       }
     }
 

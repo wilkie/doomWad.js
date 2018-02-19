@@ -68,7 +68,7 @@ function initDoomWadPatch(context) {
         var parsing = 0;
         var spans = [];
 
-        while (parsing < 255) {
+        while (parsing < 1000) {
           parsing ++;
 
           const spanInfo = {
@@ -79,7 +79,7 @@ function initDoomWadPatch(context) {
 
           // This is the final span
           if (spanInfo.yOffset >= 255) {
-            parsing = 255;
+            parsing = 1000;
             continue;
           }
 

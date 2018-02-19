@@ -55,10 +55,19 @@ function initDoomWadTexture(context) {
         const spanInfo = info[0];
         const data     = info[1];
 
-        const textureX = x + patchInfo.originX;
+        var textureX = x + patchInfo.originX;
+        if (textureX < 0) {
+          textureX  += texture._width;
+        }
+        if (textureX >= texture._width) {
+          return;
+        }
 
         for (var y = spanInfo.yOffset; y < (spanInfo.yOffset + spanInfo.nPixels) && (y + patchInfo.originY) < texture._height; y++) {
-          const textureY = y + patchInfo.originY;
+          var textureY = y + patchInfo.originY;
+          if (textureY < 0) {
+            textureY  += texture._height;
+          }
 
           const realPixel = data[y - spanInfo.yOffset];
 

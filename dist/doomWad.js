@@ -1,4 +1,4 @@
-/*! lib-doomWad - v0.1.0 - 2018-02-13 - wilkie */
+/*! lib-doomWad - v0.1.0 - 2018-02-19 - wilkie */
 ;(function (global) {
 
 /*jslint browser: true*/
@@ -161,6 +161,7 @@ function initDoomWadDirectory(context) {
 
     self._size = 16 * lumpCount;
     self._directory = {};
+    self._namespaces = {};
 
     var last = {};
 
@@ -208,6 +209,13 @@ function initDoomWadDirectory(context) {
         self._directory[name] = [];
       }
       self._directory[name].push(lumpHeader);
+
+      if (namespace != "global") {
+        if (!(namespace in self._namespaces)) {
+          self._namespaces[namespace] = [];
+        }
+        self._namespaces[namespace].push(lumpHeader);
+      }
       last = lumpHeader;
     }
 
@@ -216,6 +224,10 @@ function initDoomWadDirectory(context) {
 
   Directory.prototype.size = function() {
     return this._size;
+  };
+
+  Directory.prototype.lumpsFor = function(namespace) {
+    return this._namespaces[namespace] || [];
   };
 
   Directory.prototype.lumpHeaderFor = function(name, namespace) {
@@ -772,7 +784,7 @@ function initDoomWadPatch(context) {
         var parsing = 0;
         var spans = [];
 
-        while (parsing < 255) {
+        while (parsing < 1000) {
           parsing ++;
 
           const spanInfo = {
@@ -783,7 +795,7 @@ function initDoomWadPatch(context) {
 
           // This is the final span
           if (spanInfo.yOffset >= 255) {
-            parsing = 255;
+            parsing = 1000;
             continue;
           }
 
@@ -876,12 +888,56 @@ function initDoomWadSector(context) {
     return self;
   };
 
+  Sector.prototype.brightness = function() {
+    return this._lightLevel;
+  };
+
   Sector.prototype.floor = function() {
     return this._floorHeight;
   };
 
   Sector.prototype.ceiling = function() {
     return this._ceilingHeight;
+  };
+
+  Sector.prototype.neighborFloor = function() {
+    var self = this;
+
+    // Look at each linedef's sidedef and determine the most visible point
+    var ret = self.floor();
+
+    this._lineDefs.forEach(function(lineDef) {
+      var sideDef = lineDef.rightSideDef();
+      if (sideDef && sideDef.sector() === self) {
+        sideDef = lineDef.leftSideDef();
+      }
+
+      if (sideDef) {
+        ret = Math.min(ret, sideDef.sector().floor());
+      }
+    });
+
+    return ret;
+  };
+
+  Sector.prototype.neighborCeiling = function() {
+    var self = this;
+
+    // Look at each linedef's sidedef and determine the most visible point
+    var ret = self.ceiling();
+
+    this._lineDefs.forEach(function(lineDef) {
+      var sideDef = lineDef.rightSideDef();
+      if (sideDef && sideDef.sector() === self) {
+        sideDef = lineDef.leftSideDef();
+      }
+
+      if (sideDef) {
+        ret = Math.max(ret, sideDef.sector().ceiling());
+      }
+    });
+
+    return ret;
   };
 
   Sector.prototype.lineDefs = function() {
@@ -1755,10 +1811,19 @@ function initDoomWadTexture(context) {
         const spanInfo = info[0];
         const data     = info[1];
 
-        const textureX = x + patchInfo.originX;
+        var textureX = x + patchInfo.originX;
+        if (textureX < 0) {
+          textureX  += texture._width;
+        }
+        if (textureX >= texture._width) {
+          return;
+        }
 
         for (var y = spanInfo.yOffset; y < (spanInfo.yOffset + spanInfo.nPixels) && (y + patchInfo.originY) < texture._height; y++) {
-          const textureY = y + patchInfo.originY;
+          var textureY = y + patchInfo.originY;
+          if (textureY < 0) {
+            textureY  += texture._height;
+          }
 
           const realPixel = data[y - spanInfo.yOffset];
 
@@ -1877,6 +1942,27 @@ function initDoomWadTextures(context) {
     return this._patches[name];
   };
 
+  Textures.prototype._loadSprite = function(name) {
+    var self = this;
+
+    if (self._spritesLoaded === undefined) {
+      self._spritesLoaded = {};
+    }
+
+    if (!self._spritesLoaded[name]) {
+      var patch = self._directory.lumpHeaderFor(name, "sprite");
+      patch.originX = 0;
+      patch.originY = 0;
+      patch.patch   = name;
+      if (patch) {
+        self._spritesLoaded[name] = patch;
+        self._spritesLoaded[name].patchObject = new context.DoomWad.Patch(self._stream, self._info, patch, self._palette);
+      }
+    }
+
+    return self._spritesLoaded[name];
+  };
+
   Textures.prototype._loadPatches = function() {
     var self = this;
 
@@ -1958,7 +2044,7 @@ function initDoomWadTextures(context) {
           patches: []
         };
 
-        self._textures[textureRecords[i].name] = textureRecords[i];
+        self._textures[textureRecords[i].name.toUpperCase()] = textureRecords[i];
 
         if (textureRecords[i].npatch > 1000) {
           self._stream.pop();
@@ -1968,8 +2054,8 @@ function initDoomWadTextures(context) {
 
         for (var j = 0; j < textureRecords[i].npatch; j++) {
           const patchInfo = {
-            originX:  self._stream.read16lu(),
-            originY:  self._stream.read16lu(),
+            originX:  self._stream.read16ls(),
+            originY:  self._stream.read16ls(),
             patch:    self._stream.read16lu()
           };
 
@@ -2016,6 +2102,8 @@ function initDoomWadTextures(context) {
     this._loadTextureLump("TEXTURE2");
 
     if (namespace == "global") {
+      name = name.toUpperCase();
+
       // Look for general texture
       if (name in this._textures) {
         if (!('textureObject' in this._textures[name])) {
@@ -2028,22 +2116,38 @@ function initDoomWadTextures(context) {
 
         return this._textures[name].textureObject;
       }
+      else if (name != "-") {
+        console.log("WARNING: cannot find texture", name);
+      }
     }
     else if (!(name in this._cache[namespace])) {
-      var lumpHeader = this._directory.lumpHeaderFor(name, namespace);
-      if (lumpHeader) {
-        this._stream.push();
-        var texture  = new context.DoomWad.Texture(this._stream, lumpHeader, this._palette);
-        this._cache[namespace][name] = texture;
+      if (namespace == "flat") {
+        var lumpHeader = this._directory.lumpHeaderFor(name, namespace);
+        if (lumpHeader) {
+          this._stream.push();
+          var texture  = new context.DoomWad.Texture(this._stream, lumpHeader, this._palette);
+          this._cache[namespace][name] = texture;
 
-        if (!(name in this._cache["global"])) {
-          this._cache["global"][name]  = texture;
+          if (!(name in this._cache["global"])) {
+            this._cache["global"][name]  = texture;
+          }
+
+          this._stream.pop();
         }
-
-        this._stream.pop();
+        else {
+          console.log("Warning:", "lump section", name, namespace, "not found");
+        }
       }
       else {
-        console.log("Warning:", "lump section", name, namespace, "not found");
+        // It is a simple, single patch
+        this._cache[namespace][name] = new context.DoomWad.Texture(this._stream, {
+          'patches': [this._loadSprite(name)],
+          'size': 0,
+          'name': name,
+          'width': this._loadSprite(name).patchObject.width(),
+          'height': this._loadSprite(name).patchObject.height(),
+          'namespace': namespace
+        }, this._palette);
       }
     }
 

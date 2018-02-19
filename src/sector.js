@@ -19,12 +19,56 @@ function initDoomWadSector(context) {
     return self;
   };
 
+  Sector.prototype.brightness = function() {
+    return this._lightLevel;
+  };
+
   Sector.prototype.floor = function() {
     return this._floorHeight;
   };
 
   Sector.prototype.ceiling = function() {
     return this._ceilingHeight;
+  };
+
+  Sector.prototype.neighborFloor = function() {
+    var self = this;
+
+    // Look at each linedef's sidedef and determine the most visible point
+    var ret = self.floor();
+
+    this._lineDefs.forEach(function(lineDef) {
+      var sideDef = lineDef.rightSideDef();
+      if (sideDef && sideDef.sector() === self) {
+        sideDef = lineDef.leftSideDef();
+      }
+
+      if (sideDef) {
+        ret = Math.min(ret, sideDef.sector().floor());
+      }
+    });
+
+    return ret;
+  };
+
+  Sector.prototype.neighborCeiling = function() {
+    var self = this;
+
+    // Look at each linedef's sidedef and determine the most visible point
+    var ret = self.ceiling();
+
+    this._lineDefs.forEach(function(lineDef) {
+      var sideDef = lineDef.rightSideDef();
+      if (sideDef && sideDef.sector() === self) {
+        sideDef = lineDef.leftSideDef();
+      }
+
+      if (sideDef) {
+        ret = Math.max(ret, sideDef.sector().ceiling());
+      }
+    });
+
+    return ret;
   };
 
   Sector.prototype.lineDefs = function() {
